@@ -234,7 +234,9 @@
         "abort": {
             "already_configured": "设备已配置。",
             "unsupported_device_type": "不支持的设备类型！",
-            "reauth_successful": "验证成功"
+            "reauth_successful": "验证成功",
+            "password_login_unavailable": "账号密码登录不可用，请使用扫码登录。",
+            "sms_login_unavailable": "短信验证码登录不可用，请使用扫码登录。"
         },
         "error": {
             "authentication_failed": "身份验证失败。\n{msg}",
@@ -255,8 +257,8 @@
                 "description": "请选择登录方式",
                 "menu_options": {
                     "local": "使用IP添加设备",
-                    "password": "密码登录",
-                    "sms": "短信验证码登录",
+                    "password": "密码登录（不可用，请使用扫码登录）",
+                    "sms": "短信验证码登录（不可用，请使用扫码登录）",
                     "qrcode": "扫码登录"
                 }
             },
@@ -264,8 +266,8 @@
                 "title": "身份验证过期",
                 "description": "请选择重新验证方式",
                 "menu_options": {
-                    "password": "密码验证",
-                    "sms": "短信验证码验证",
+                    "password": "密码验证（不可用，请使用扫码登录）",
+                    "sms": "短信验证码验证（不可用，请使用扫码登录）",
                     "qrcode": "扫码验证"
                 }
             },

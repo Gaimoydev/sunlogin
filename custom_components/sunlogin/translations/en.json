@@ -234,7 +234,9 @@
         "abort": {
             "already_configured": "Device has already been configured.",
             "unsupported_device_type": "Unsupported device type!",
-            "reauth_successful": "Reauth successful"
+            "reauth_successful": "Reauth successful",
+            "password_login_unavailable": "Password login is unavailable. Please use QR code login.",
+            "sms_login_unavailable": "SMS login is unavailable. Please use QR code login."
         },
         "error": {
             "authentication_failed": "Failed to authenticate.\n{msg}",
@@ -255,8 +257,8 @@
                 "description": "Please select a login method",
                 "menu_options": {
                     "local": "Add the device by IP address",
-                    "password": "Log in with your password",
-                    "sms": "Log in with an SMS verification code",
+                    "password": "Log in with your password (unavailable)",
+                    "sms": "Log in with an SMS verification code (unavailable)",
                     "qrcode": "Scan the QR code to log in"
                 }
             },
@@ -264,8 +266,8 @@
                 "title": "Reauthentication",
                 "description": "Please select a reauth method",
                 "menu_options": {
-                    "password": "Reauthenticate with your password",
-                    "sms": "Reauthenticate with an SMS verification code",
+                    "password": "Reauthenticate with your password (unavailable)",
+                    "sms": "Reauthenticate with an SMS verification code (unavailable)",
                     "qrcode": "Scan the QR code to Reauthenticate"
                 }
             },

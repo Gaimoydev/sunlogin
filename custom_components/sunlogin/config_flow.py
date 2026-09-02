@@ -209,9 +209,9 @@ class SunLoginConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_menu(
             step_id="reauth",
             menu_options=[
-                "password",
+                "qrcode",
                 "sms",
-                "qrcode"
+                "password",
             ]
         )
 
@@ -228,10 +228,10 @@ class SunLoginConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_menu(
             step_id="user",
             menu_options=[
+                "qrcode",
                 "local",
-                "password",
                 "sms",
-                "qrcode"
+                "password",
             ]
         )
 
@@ -247,45 +247,14 @@ class SunLoginConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_password(self, user_input=None):
-        errors = {}
-        placeholders = {"msg": ''}
-
-        if user_input is not None:
-            if user_input.get(CONF_USERNAME) == 'scry':
-                return await self._create_entry(user_input)
-
-            res = await attempt_connection(self.sunlogin, 1, user_input.get(CONF_USERNAME), user_input.get(CONF_PASSWORD))
-
-            if not res:
-                return await self._create_entry(user_input)
-            errors["base"] = res["reason"]
-            placeholders = {"msg": res["msg"]}
-
-        return self.async_show_form(
-            step_id="password",
-            data_schema=PASSWORD_SETUP_SCHEMA,
-            errors=errors,
-            description_placeholders=placeholders,
-        )
+        # Password authentication is intentionally disabled. The supported
+        # account login path is QR authorization.
+        return self.async_abort(reason="password_login_unavailable")
 
     async def async_step_sms(self, user_input=None):
-        errors = {}
-        placeholders = {"msg": ''}
-
-        if user_input is not None:
-            res = await attempt_connection(self.sunlogin, 2, user_input.get(CONF_USERNAME), user_input.get(CONF_CODE))
-
-            if not res:
-                return await self._create_entry(user_input)
-            errors["base"] = res["reason"]
-            placeholders = {"msg": res["msg"]}
-
-        return self.async_show_form(
-            step_id="sms",
-            data_schema=SMS_SETUP_SCHEMA,
-            errors=errors,
-            description_placeholders=placeholders,
-        )
+        # SMS authentication is intentionally disabled. The supported
+        # account login path is QR authorization.
+        return self.async_abort(reason="sms_login_unavailable")
 
     async def async_step_qrcode(self, user_input=None):
         if not self.qrtask:
@@ -334,15 +303,29 @@ class SunLoginConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_progress_done(next_step_id="qrcode")
 
     async def make_qrcode_img(self):
-        resp =  await self.api_v2.async_get_qrdata()
-        if not resp.ok:
-            # raise error
-            pass
-        r_json = resp.json()
-        qrdata = make_qrcode_base64_v2(r_json)
-        if qrdata is not None:
-            self.qrdata = qrdata
-            self.qrstep += 1
+        last_error = None
+        for attempt in range(1, 6):
+            try:
+                resp = await self.api_v2.async_get_qrdata()
+                if not resp.ok:
+                    raise RuntimeError(f"QR apply failed with HTTP {resp.status_code}")
+                r_json = resp.json()
+                qrdata = make_qrcode_base64_v2(r_json)
+                if qrdata is None:
+                    raise RuntimeError("QR apply response did not contain qrdata")
+                self.qrdata = qrdata
+                self.qrstep += 1
+                break
+            except Exception as error:
+                last_error = error
+                _LOGGER.warning("Unable to load SunLogin QR code (attempt %s/5): %s", attempt, error)
+                if attempt < 5:
+                    await asyncio.sleep(0.5)
+        else:
+            # Reset to the first QR step so the user can retry without
+            # restarting HA after all short, bounded attempts fail.
+            _LOGGER.error("Unable to load SunLogin QR code after 5 attempts: %s", last_error)
+            self.qrstep = 0
         self.hass.async_create_task(
             self.hass.config_entries.flow.async_configure(flow_id=self.flow_id)
         )

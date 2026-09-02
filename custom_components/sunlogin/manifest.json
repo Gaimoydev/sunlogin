@@ -1,17 +1,15 @@
 {
     "domain": "sunlogin",
     "name": "SunLogin integration",
-    "codeowners": ["@cx3Y"],
+    "codeowners": ["@Gaimoydev"],
     "config_flow": true,
     "dependencies": ["http", "network"],
-    "documentation": "https://github.com/cx3Y/sunlogin",
+    "documentation": "https://github.com/Gaimoydev/sunlogin",
     "integration_type": "device",
     "iot_class": "cloud_polling",
-    "issue_tracker": "https://github.com/cx3Y/sunlogin/issues",
+    "issue_tracker": "https://github.com/Gaimoydev/sunlogin/issues",
     "requirements": [
-        "PyQRCode==1.2.1",
-        "pypng==0.20220715.0"
+        "PyQRCode==1.2.1"
     ],
-    "version": "3.0.8"
+    "version": "3.0.9"
 }
-  

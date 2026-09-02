@@ -106,7 +106,7 @@ UPDATE_FLAG_SN = 'update_flag_sn'
 UPDATE_FLAG_IP = 'update_flag_ip'
 UPDATE_FLAG_VERSION = 'update_flag_version'
 
-ELECTRIC_MODEL = ["C1-2", "C2", "C2_BLE", "C2-BLE", "P1", "P1Pro", "P4", "P8", "P8Pro"]   #, "SunLogin generic"
+ELECTRIC_MODEL = ["C1-2", "C2", "C2_BLE", "C2-BLE", "C4", "C4-V1", "C4-V2", "P1", "P1Pro", "P4", "P8", "P8Pro"]   #, "SunLogin generic"
 NO_ELECTRIC_MODEL = ["C1", "C1Pro", "C1Pro_BLE", "C1Pro-BLE", "P2"]
 DP_RELAY_0 = "relay0"
 DP_RELAY_1 = "relay1"
@@ -363,6 +363,10 @@ async def async_guess_model(hass, ip):
         model = 'P4'
     elif device_type == 'P8':
         model = 'P8'
+    elif isinstance(device_type, str) and device_type.upper().startswith('C4'):
+        # C4 local firmware identifies itself directly (C4/C4-V1/C4-V2)
+        # instead of the generic one-outlet type used by older plugs.
+        model = device_type
     else:
         try:
             resp_electric = await plug_api.async_get_electric(sn)
@@ -497,6 +501,11 @@ def get_entities(tag):
     elif tag == 'electricity_lastmonth':
         return [DP_ELECTRICITY_LASTMONTH, *extra_p8[48:56]]
 
+    elif 'C4' in tag:
+        # C4/C4-V1/C4-V2 expose one metered outlet plus LED/default
+        # controls.  They use the same electric payload as C2; historical
+        # power-consumption records may legitimately be empty on 4G units.
+        return slot_x_with_electric[:-7]
     elif 'C2' in tag or 'C1-2' == tag:
         return slot_x_with_electric[:-7]
     elif 'C1' in tag:
@@ -511,9 +520,11 @@ def get_entities(tag):
         return slot_x_with_electric + extra_p8
 
 def get_sunlogin_device(hass, config):
-    model = config.get(CONF_DEVICE_MODEL)
+    model = config.get(CONF_DEVICE_MODEL) or ""
     if 'C2' in model or 'C1-2' == model:
         return C2(hass, config)
+    elif 'C4' in model:
+        return C4(hass, config)
     elif 'C1' in model:
         return C1Pro(hass, config)
     elif 'P1' in model:
@@ -569,7 +580,8 @@ def plug_electric_process(data):
         status[DP_VOLTAGE] = voltage
 
     if (current := data.get('curr')) is not None:
-        current = current // 1000
+        # The plug API reports current in mA (the official client preserves
+        # this value verbatim); only voltage and power carry milli-units.
         status[DP_CURRENT] = current
 
     if (power := data.get('power')) is not None:
@@ -579,7 +591,6 @@ def plug_electric_process(data):
     if (sub_electric := data.get('sub')) is not None and isinstance(sub_electric, list):
         for index, electric in enumerate(sub_electric):
             sub_current = electric['cur']
-            sub_current = sub_current // 1000
             sub_power = electric['pwr']
             sub_power = sub_power / 1000
             status[f"sub_current{index}"] = sub_current
@@ -675,10 +686,11 @@ def make_qrcode_base64_v2(r_json):
         return 
     buffer = io.BytesIO()
     url = pyqrcode.create(qrdata)
-    # url.png(buffer, scale=5, module_color="#EEE", background="#FFF")
-    url.png(buffer, scale=5, module_color="#000", background="#FFF")
+    # Use PyQRCode's built-in SVG writer so HA does not need the optional
+    # pypng package (which can block config-flow loading when PyPI is offline).
+    url.svg(buffer, scale=5, module_color="#000", background="#FFF")
     image_base64 = str(base64.b64encode(buffer.getvalue()), encoding='utf-8')
-    image = f'![image](data:image/png;base64,{image_base64})'
+    image = f'![image](data:image/svg+xml;base64,{image_base64})'
     _LOGGER.debug("make_qrcode_img: %s", qrdata)
 
     return {"image": image, "time": time.time(), "key": key}
@@ -1048,10 +1060,29 @@ class SunloginPlug(SunLoginDevice, ABC):
 
     async def async_get_firmware_version(self) -> str | None:
         """Get firmware version."""
-        resp = await self.api.async_get_info(self.sn, self.token.access_token)
-        
-        r_json = resp.json()
-        return r_json[CONF_DEVICE_VERSION]
+        # ``get_plug_info`` is still accepted by the service but newer
+        # devices (notably C4-V2) return only ``{"result": 0}`` there.  The
+        # official client uses the dedicated version operation, which is
+        # available on all remote plug API variants.
+        version = None
+        try:
+            resp = await self.api.async_get_version(self.sn, self.token.access_token)
+            r_json = resp.json()
+            if isinstance(r_json, dict):
+                version = r_json.get(CONF_DEVICE_VERSION)
+        except Exception:
+            # Older firmware may reject get_plug_version at the transport or
+            # HTTP layer instead of returning a JSON object.  Keep the legacy
+            # info request as a real fallback, not only a missing-field case.
+            pass
+        if version is None:
+            info_resp = await self.api.async_get_info(self.sn, self.token.access_token)
+            info_json = info_resp.json()
+            if isinstance(info_json, dict):
+                version = info_json.get(CONF_DEVICE_VERSION)
+        if version is None:
+            raise ValueError("plug version response did not contain version")
+        return version
 
     async def async_get_ip_address(self) -> str | None:
         """Get device ip address."""
@@ -1381,6 +1412,19 @@ class C2(SunloginPlug):
     
     async def async_request(self, *args, **kwargs):
         """Send a request to the device."""
+
+
+class C4(C2):
+    """Device for C4, C4-V1 and C4-V2 4G smart plugs.
+
+    C4 uses the same signed ``/plug`` status/electric operations as C2 but
+    is represented by distinct model strings in the cloud device list.  Keep
+    the entity layout and retry behaviour from :class:`C2`; the optional
+    historical power endpoint simply returns an empty list for current 4G
+    units.
+    """
+    pass
+
 
 class P1Pro(SunloginPlug):
     """Device for P1 P1Pro"""

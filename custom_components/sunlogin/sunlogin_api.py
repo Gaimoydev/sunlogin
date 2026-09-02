@@ -286,6 +286,9 @@ class CloudAPI(HTTPRequest):
 class CloudAPI_V2(HTTPRequest):
     def __init__(self, hass):
         self.hass = hass
+        # QR requests must fail fast so a transient cloud/network issue does
+        # not leave the Home Assistant config flow spinning indefinitely.
+        self.timeout = 5
         self.session = requests.Session()
 
     async def async_get_qrdata(self):
@@ -452,6 +455,15 @@ class PlugAPI_V2(HTTPRequest):
         resp = await self.async_make_request_by_requests("GET", self.address, data=data, headers=headers, auth=SunloginAuth(access_token))
         return resp
 
+    async def async_get_version(self, sn, access_token):
+        """Return firmware via the dedicated plug operation."""
+        data = {API: API_GET_VERSION, SN: sn}
+        data.update(self.calc_key(sn))
+
+        headers = {'Host': PLUG_DOMAIN}
+        resp = await self.async_make_request_by_requests("GET", self.address, data=data, headers=headers, auth=SunloginAuth(access_token))
+        return resp
+
     async def async_get_sn(self, sn='sunlogin', access_token='a'):
         data = {API: API_GET_SN, SN: sn}
         data.update(self.calc_key(sn))
@@ -516,7 +528,11 @@ class PlugAPI_V2_FAST(HTTPRequest):
 
     def __init__(self, hass, address):
         self.hass = hass
+        # Register the initial address before process_cert() is reached.  The
+        # DNS injector may replace this mapping later, but the first request
+        # must also work when that task has not run yet.
         self._address = address
+        self._process_address.setdefault(address, address)
         # self._address = HTTPS_SUFFIX + '47.111.169.221' + PLUG_PATH
         self.adapters = dict()
         self.session = requests.Session()
@@ -570,6 +586,16 @@ class PlugAPI_V2_FAST(HTTPRequest):
 
     async def async_get_info(self, sn, access_token):
         data = {API: API_GET_PLUG_INFO, SN: sn}
+        data.update(self.calc_key(sn))
+
+        headers = {'Host': PLUG_DOMAIN}
+        self.process_cert()
+        resp = await self.async_make_request_by_requests("GET", self.address, data=data, headers=headers, auth=SunloginAuth(access_token))
+        return resp
+
+    async def async_get_version(self, sn, access_token):
+        """Fetch firmware through the dedicated read-only operation."""
+        data = {API: API_GET_VERSION, SN: sn}
         data.update(self.calc_key(sn))
 
         headers = {'Host': PLUG_DOMAIN}
@@ -633,6 +659,3 @@ class PlugAPI_V2_FAST(HTTPRequest):
         
         resp = await self.async_make_request_by_requests("GET", url)
         return resp
-    
-
-    
